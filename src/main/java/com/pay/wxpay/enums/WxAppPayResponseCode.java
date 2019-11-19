@@ -1,6 +1,8 @@
 package com.pay.wxpay.enums;
 
-
+/**
+ * 微信订单异常响应状态码
+ */
 public enum WxAppPayResponseCode {
 
 	SUCCESS("SUCCESS","data","将回调参数放入data内"),
@@ -22,6 +24,14 @@ public enum WxAppPayResponseCode {
 	POST_DATA_EMPTY("POST_DATA_EMPTY","post数据为空","请检查post数据是否为空"),
 	NOT_UTF8("NOT_UTF8","编码格式错误","请使用NOT_UTF8编码格式"),
 	ORDERNOTEXIST("ORDERNOTEXIST","此交易订单号不存在","该API只能查提交支付交易返回成功的订单，请商户检查需要查询的订单号是否正确"),
+	BIZERR_NEED_RETRY("BIZERR_NEED_RETRY","退款业务流程错误，需要商户触发重试来解决","请不要更换商户退款单号，请使用相同参数再次调用API。"),
+	TRADE_OVERDUE("TRADE_OVERDUE","订单已经超过退款期限","请选择其他方式自行退款"),
+	USER_ACCOUNT_ABNORMAL("USER_ACCOUNT_ABNORMAL","退款请求失败","此状态代表退款申请失败，商户可自行处理退款。"),
+	INVALID_REQ_TOO_MUCH("INVALID_REQ_TOO_MUCH","无效请求过多","请检查业务是否正常，确认业务正常后请在1分钟后再来重试"),
+	INVALID_TRANSACTIONID("INVALID_TRANSACTIONID","无效transaction_id","请求参数错误，检查原交易号是否存在或发起支付交易接口返回失败"),
+	PARAM_ERROR("PARAM_ERROR","参数错误","请求参数错误，请重新检查再调用退款申请"),
+	FREQUENCY_LIMITED("FREQUENCY_LIMITED","频率限制","该笔退款未受理，请降低频率后重试"),
+	REFUNDNOTEXIST("REFUNDNOTEXIST","退款订单查询失败","请检查订单号是否有误以及订单状态是否正确，如：未支付、已支付未退款"),
 	ERROR("ERROR","请求有误，请重新提交","非业务错误码范围，请查看信息核对");
 	
 	private String code;

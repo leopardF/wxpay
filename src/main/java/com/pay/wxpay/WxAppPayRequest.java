@@ -11,12 +11,11 @@ import com.alibaba.fastjson.JSONObject;
 import com.pay.wxpay.bean.WxOrderResponse;
 import com.pay.wxpay.enums.WxAppPayResponseCode;
 import com.pay.wxpay.utils.WXPay;
-import com.pay.wxpay.utils.WXPayConstants;
 import com.pay.wxpay.utils.WXPayUtil;
 import com.pay.wxpay.utils.WxPayConfigImpl;
 
 /**
- * 订单--统一下单/调起支付接口/支付结果通知/查询订单/关闭订单
+ * 订单--统一下单/调起支付接口/退款/结果通知/查询订单/关闭订单
  * 借鉴：https://blog.csdn.net/asd54090/article/details/81028323
  */
 public class WxAppPayRequest {
@@ -63,11 +62,7 @@ public class WxAppPayRequest {
 
 		// 准备好请求参数
 		Map<String, String> map = new HashMap<String, String>();
-		map.put("appid", WxPayConfigImpl.appid);
-		map.put("mch_id", WxPayConfigImpl.mch_id);
 		map.put("device_info", WxPayConfigImpl.device_info);
-		map.put("nonce_str", WXPayUtil.generateNonceStr());
-		map.put("sign_type", WXPayConstants.HMACSHA256);
 		map.put("body", body);
 		if (attach != null && !attach.isEmpty()) {
 			map.put("attach", attach);
@@ -85,12 +80,13 @@ public class WxAppPayRequest {
 		Map<String, String> unifiedOrderMap = null;
 		try {
 			unifiedOrderMap = wxpay.unifiedOrder(map);
-			if (unifiedOrderMap == null || (unifiedOrderMap != null && "FAIL".equals(unifiedOrderMap.get("return_code")))) {
+			if (unifiedOrderMap == null || (unifiedOrderMap != null
+					&& WxAppPayResponseCode.FAIL.code().equals(unifiedOrderMap.get("return_code")))) {
 				String errorMsg = "调用微信“统一下单”获取prepayid 失败...";
 				logger.info("getOrderSign --unifiedOrder: 调用微信“统一下单”获取prepayid 失败.");
 				logger.info("getOrderSign --unifiedOrder: 请求参数：" + map.toString());
 				logger.info("getOrderSign --unifiedOrder: 返回Map：" + unifiedOrderMap);
-				if(unifiedOrderMap != null){
+				if (unifiedOrderMap != null) {
 					errorMsg += " 异常信息为：" + unifiedOrderMap.get("return_msg");
 				}
 				WxAppPayResponseCode error = WxAppPayResponseCode.ERROR;
@@ -105,10 +101,10 @@ public class WxAppPayRequest {
 			error.setAlias("调用微信“统一下单”失败 。" + e.toString());
 			return error;
 		}
-		
-		//调用微信请求成功，但响应失败
+
+		// 调用微信请求成功，但响应失败
 		String resultCode = unifiedOrderMap.get("result_code");
-		if(WxAppPayResponseCode.FAIL.code().equals(resultCode)){
+		if (WxAppPayResponseCode.FAIL.code().equals(resultCode)) {
 			WxAppPayResponseCode error = WxAppPayResponseCode.findCode(unifiedOrderMap.get("err_code"));
 			return error;
 		}
@@ -162,7 +158,6 @@ public class WxAppPayRequest {
 		successData.setAlias(JSONObject.toJSONString(response));
 		return successData;
 	}
-	
 
 	/**
 	 * 查微信订单
@@ -177,9 +172,7 @@ public class WxAppPayRequest {
 		data.put("out_trade_no", outTradeNo);
 		try {
 			Map<String, String> orderQueryMap = wxpay.orderQuery(data);
-			WxAppPayResponseCode successData = WxAppPayResponseCode.SUCCESS;
-			successData.setAlias(JSONObject.toJSONString(orderQueryMap));
-			return successData;
+			return disposeReturnInfo(orderQueryMap);
 		} catch (Exception e) {
 			e.printStackTrace();
 			logger.error("queryOrderByOutTradeNo : 查询微信订单支付信息失败 。订单号：" + outTradeNo);
@@ -189,32 +182,119 @@ public class WxAppPayRequest {
 			return errorData;
 		}
 	}
-	
+
 	/**
-     * 关闭订单
-     *
-     * @param outTradeNo 订单号
-     * @return
-     */
-    public WxAppPayResponseCode closeOrder(String outTradeNo) {
-    	
-    	logger.info("关闭微信支付订单信息，订单号为：" + outTradeNo);
-        HashMap<String, String> data = new HashMap<>();
-        data.put("out_trade_no", outTradeNo);
-        try {
-            Map<String, String> closeOrderMap = wxpay.closeOrder(data);
-			WxAppPayResponseCode successData = WxAppPayResponseCode.SUCCESS;
-			successData.setAlias(JSONObject.toJSONString(closeOrderMap));
-			return successData;
-        } catch (Exception e) {
-            e.printStackTrace();
-            logger.error("closeOrder : 微信关闭订单失败 。订单号：" + outTradeNo);
+	 * 关闭订单（刚刚生成的订单不能立马关闭，要间隔5分钟，请自行做好判断）
+	 *
+	 * @param outTradeNo
+	 *            订单号
+	 * @return
+	 */
+	public WxAppPayResponseCode closeOrder(String outTradeNo) {
+
+		logger.info("关闭微信支付订单信息，订单号为：" + outTradeNo);
+		HashMap<String, String> data = new HashMap<>();
+		data.put("out_trade_no", outTradeNo);
+		try {
+			Map<String, String> closeOrderMap = wxpay.closeOrder(data);
+			return disposeReturnInfo(closeOrderMap);
+		} catch (Exception e) {
+			e.printStackTrace();
+			logger.error("closeOrder : 微信关闭订单失败 。订单号：" + outTradeNo);
 			logger.error("closeOrder : 返回错误信息：", e);
 			WxAppPayResponseCode errorData = WxAppPayResponseCode.ERROR;
 			errorData.setAlias("调用查微信订单支付信息接口失败！");
 			return errorData;
-        }
-    }
+		}
+	}
+
+	/**
+	 * 微信退款申请
+	 *
+	 * @param outTradeNo
+	 *            商户订单号
+	 * @param amount
+	 *            金额
+	 * @param refund_desc
+	 *            退款原因（可空）
+	 * @param notifyUrl
+	 *            退款异步通知链接
+	 * 
+	 * @return 返回map（已做过签名验证），具体数据参见微信退款API
+	 */
+	public WxAppPayResponseCode refundOrder(String outTradeNo, BigDecimal amount, String refundDesc, String notifyUrl)
+			throws Exception {
+
+		Map<String, String> data = new HashMap<String, String>();
+		data.put("out_trade_no", outTradeNo);
+		data.put("out_refund_no", outTradeNo);
+		data.put("total_fee", amount + "");
+		data.put("refund_fee", amount + "");
+		data.put("refund_fee_type", "CNY");
+		data.put("refund_desc", refundDesc);
+		data.put("notifyUrl", notifyUrl);
+
+		try {
+			Map<String, String> refundOrderMap = wxpay.refund(data);
+			return disposeReturnInfo(refundOrderMap);
+		} catch (Exception e) {
+			e.printStackTrace();
+			logger.error("closeOrder : 微信退款申请失败 。订单号：" + outTradeNo);
+			logger.error("closeOrder : 返回错误信息：", e);
+			WxAppPayResponseCode errorData = WxAppPayResponseCode.ERROR;
+			errorData.setAlias("调用微信退款申请信息接口失败！");
+			return errorData;
+		}
+	}
+
+	/**
+	 * 查微信退款订单 注：如果单个支付订单部分退款次数超过20次请使用退款单号查询
+	 *
+	 * @param outTradeNo
+	 *            订单号
+	 */
+	public WxAppPayResponseCode queryRefundOrderByOutTradeNo(String outTradeNo) {
+
+		logger.info("查询微信支付订单信息，订单号为：" + outTradeNo);
+		HashMap<String, String> data = new HashMap<String, String>();
+		data.put("out_trade_no", outTradeNo);
+		try {
+			Map<String, String> refundQueryMap = wxpay.refundQuery(data);
+			return disposeReturnInfo(refundQueryMap);
+		} catch (Exception e) {
+			e.printStackTrace();
+			logger.error("queryRefundOrderByOutTradeNo : 查询微信退款订单信息失败 。订单号：" + outTradeNo);
+			logger.error("queryRefundOrderByOutTradeNo : 返回错误信息：", e);
+			WxAppPayResponseCode errorData = WxAppPayResponseCode.ERROR;
+			errorData.setAlias("调用查微信退款订单接口失败！");
+			return errorData;
+		}
+	}
+
+	/**
+	 * 对接口接收成功后的返回进行处理
+	 * 
+	 * @param resultMap
+	 * @return
+	 */
+	private WxAppPayResponseCode disposeReturnInfo(Map<String, String> resultMap) {
+
+		if (resultMap == null
+				|| (resultMap != null && WxAppPayResponseCode.FAIL.code().equals(resultMap.get("return_code")))) {
+			WxAppPayResponseCode errorData = WxAppPayResponseCode.ERROR;
+			errorData.setAlias("调用微信接口失败！返回数据为 : " + resultMap);
+			return errorData;
+		}
+
+		if (WxAppPayResponseCode.FAIL.code().equals(resultMap.get("result_code"))) {
+			WxAppPayResponseCode errorData = WxAppPayResponseCode.findCode(resultMap.get("err_code"));
+			return errorData;
+		}
+
+		WxAppPayResponseCode successData = WxAppPayResponseCode.SUCCESS;
+		successData.setAlias(JSONObject.toJSONString(resultMap));
+		return successData;
+	}
 
 	/**
 	 * 是否成功接收微信支付回调 用于回复微信，否则微信回默认为商户后端没有收到回调
